@@ -315,6 +315,8 @@ Refer to LICENSE file for license.
 		'SPAN': addDummyNode,
 	};
 	
+	var HTMLCommentStrip = new RegExp("<![^>]*>"); // a bit simple, but works for now
+	
 	// Parses document
 	//
 	// e.g. "<html><head><title></title></head><body><p class="top">FOO <b>woo</b></p><p>Foo 2</p></body></html>"
@@ -331,16 +333,17 @@ Refer to LICENSE file for license.
 	function parse(doc) {
 		var tagParse = new RegExp("</?([A-Za-z]*)( ([a-zA-Z0-9_-]*=(\".*\")|('.*') ?)*)?>", "");
 		
+		var rawDoc = doc.replace(HTMLCommentStrip, "");
 		var startIDX = 0;
 		var curStr = doc;
 		var nodeStack = [];
 		var nodeList = [];
-		var len = doc.length;
+		var len = rawDoc.length;
 		var topNode = null;
 		
 		// Search for tags...
 		while (startIDX != -1 && startIDX < len) {
-			var searchStr = doc.substr(startIDX); 
+			var searchStr = rawDoc.substr(startIDX);
 			var nextTag = searchStr.search(tagParse);
 			
 			//debugLog("SS:" + searchStr);
@@ -410,8 +413,88 @@ Refer to LICENSE file for license.
 		return nodeList;
 	}
 	
+	// CSS Parser
+	var CSSCommentStrip = new RegExp("/\\*[^\\*]*\\*/");
+	function stripCSSComments(str) {
+		return str.replace(CSSCommentStrip, "");
+	}
+	
+	function parseCSSSelectors(doc) {
+		// chunker taken from sizzle, (C) Copyright 2009, The Dojo Foundation
+		var chunker = /((?:\((?:\([^()]+\)|[^()]+)+\)|\[(?:\[[^[\]]*\]|['"][^'"]*['"]|[^[\]'"]+)+\]|\\.|[^ >+~,(\[\\]+)+|[>+~])(\s*,\s*)?/g;
+		var selectorList = [];
+		var elements = [];
+		var nextElement;
+		
+		while ((nextElement = chunker.exec(doc)) != null) {
+			// TODO: ideally add some form of evaluator here
+			elements.push(nextElement[1]);
+			
+			if (nextElement[2] && nextElement[2].substr(0,1) == ',') {
+				// Selector ended
+				selectorList.push(elements);
+				elements = [];
+			}
+		}
+		
+		// Final element?
+		if (elements.length != 0)
+			selectorList.push(elements);
+		
+		return selectorList;
+	}
+
+	function parseCSSProperties(doc) {
+		var nameParse = new RegExp("([A-Za-z0-9\-_]+):", "g");
+		var propParse = /((?:'[^']+')|(?:"[^"]+")|[^;}])*/;
+		var propertyList = {};
+		var nextName;
+		
+		while ((nextName = nameParse.exec(doc)) != null) {
+			var name = nextName[1];
+			var foundProp = propParse.exec(doc.substr(nameParse.lastIndex));
+			
+			propertyList[name] = foundProp[0]; // TODO: parse value -> values
+			nextName.lastIndex = foundProp.index + foundProp[0].length + 1;
+		}
+		
+		return propertyList;
+	}
+	
+	function parseCSS(doc) {
+		var rawDoc = stripCSSComments(doc);
+		var blockParse = new RegExp("{[^{]*}", "g");
+		var startIDX = 0;
+		var len = rawDoc.length;
+		
+		// TODO: parse @ keywords
+		//       also handle blocks better
+		while (startIDX != -1 && startIDX < len) {
+			var nextBlock = blockParse.exec(rawDoc);
+			
+			if (nextBlock != null) {
+				var selectors = parseCSSSelectors(rawDoc.substr(startIDX, nextBlock.index-startIDX));
+				var blockStr = rawDoc.substr(nextBlock.index+1, blockParse.lastIndex-nextBlock.index-1);
+				debugLog("BLOCK:"+blockStr);
+				
+				var properties = parseCSSProperties(blockStr);
+				debugLog('++');
+				debugLog(selectors);
+				debugLog("--");
+				debugLog(properties);
+				debugLog('++');
+				
+				startIDX = blockParse.lastIndex;
+			} else
+				break;
+		}
+	}
+	
 	// Parse and load a sample document
-	var doc = "<html><head><title></title></head><body><p class=\"woo\" id=\"render\" style=\"display:none;\">Rendering <b>HTML</b>...</p><p><span>In <b>Canvas</b></span>!</p><p>0_0</p></body></html>";
+	var doc = "<html><head><title></title></head><body><!-- Begin test --><p class=\"woo\" id=\"render\" style=\"display:none;\">Rendering <b>HTML</b>...</p><p><span>In <b>Canvas</b></span>!</p><p>0_0</p></body></html>";
 	var parsedDoc = parse(doc);
 	render(parsedDoc);
+	
+	// Test parse CSS
+	parseCSS("div { foo: 1; woo:\"goo\"; } .wii { text-align: center }");
 }());
