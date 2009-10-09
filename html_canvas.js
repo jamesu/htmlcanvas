@@ -463,7 +463,7 @@ Refer to LICENSE file for license.
 	
 	function parseCSS(doc) {
 		var rawDoc = stripCSSComments(doc);
-		var blockParse = /(?:(@[a-zA-z]+)\s((?:[A-Za-z]+)|(?:'[^']*')|(?:"[^"]*")|(?:\([^\)]*\)));)|({[^{]*})/g;
+		var blockParse = /(?:(@[a-zA-z]+)\s((?:[A-Za-z]+)|(?:'[^']*')|(?:"[^"]*")|(?:(?:[A-Za-z]*)\([^\)]*\)));)|({[^{]*})/g;
 		
 		var startIDX = 0;
 		var len = rawDoc.length;
