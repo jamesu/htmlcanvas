@@ -446,7 +446,7 @@ Refer to LICENSE file for license.
 
 	function parseCSSProperties(doc) {
 		var nameParse = new RegExp("([A-Za-z0-9\-_]+):", "g");
-		var propParse = /((?:'[^']+')|(?:"[^"]+")|[^;}])*/;
+		var propParse = /((?:'[^']*')|(?:"[^"]*")|[^;}])*/;
 		var propertyList = {};
 		var nextName;
 		
@@ -463,26 +463,35 @@ Refer to LICENSE file for license.
 	
 	function parseCSS(doc) {
 		var rawDoc = stripCSSComments(doc);
-		var blockParse = new RegExp("{[^{]*}", "g");
+		var blockParse = /(?:(@[a-zA-z]+)\s((?:[A-Za-z]+)|(?:'[^']*')|(?:"[^"]*")|(?:\([^\)]*\)));)|({[^{]*})/g;
+		
 		var startIDX = 0;
 		var len = rawDoc.length;
 		
-		// TODO: parse @ keywords
+		// TODO: fix bug with () in @ rules
 		//       also handle blocks better
 		while (startIDX != -1 && startIDX < len) {
 			var nextBlock = blockParse.exec(rawDoc);
 			
 			if (nextBlock != null) {
-				var selectors = parseCSSSelectors(rawDoc.substr(startIDX, nextBlock.index-startIDX));
-				var blockStr = rawDoc.substr(nextBlock.index+1, blockParse.lastIndex-nextBlock.index-1);
-				debugLog("BLOCK:"+blockStr);
+				if (nextBlock[1]) {
+					// key [1]
+					// value [2]
+					// TODO
+					console.log("RULE: " + nextBlock[1] + ',' + nextBlock[2]);
+				} else if (nextBlock[3]) {
+					// Normal selector block
+					var selectors = parseCSSSelectors(rawDoc.substr(startIDX, nextBlock.index-startIDX));
+					var blockStr = rawDoc.substr(nextBlock.index+1, blockParse.lastIndex-nextBlock.index-1);
+					debugLog("BLOCK:"+blockStr);
 				
-				var properties = parseCSSProperties(blockStr);
-				debugLog('++');
-				debugLog(selectors);
-				debugLog("--");
-				debugLog(properties);
-				debugLog('++');
+					var properties = parseCSSProperties(blockStr);
+					debugLog('++');
+					debugLog(selectors);
+					debugLog("--");
+					debugLog(properties);
+					debugLog('++');
+				}
 				
 				startIDX = blockParse.lastIndex;
 			} else
@@ -496,5 +505,5 @@ Refer to LICENSE file for license.
 	render(parsedDoc);
 	
 	// Test parse CSS
-	parseCSS("div { foo: 1; woo:\"goo\"; } .wii { text-align: center }");
+	parseCSS("@test testValue; div { foo: 1; woo:\"goo\"; } .wii { text-align: center }");
 }());
