@@ -8,13 +8,22 @@ Refer to LICENSE file for license.
 	String.prototype.trim = function() { return this.replace(/^\s+|\s+$/, ''); };
 	
 	// document node prototype
-	function docNode(etype) {
-		this.etype = etype;
+	function docNode(etype, document) {
+		this.ownerDocument = document;
+		this.nodeType = etype;
 		this.tagName = '';
-		this.content = '';
+		this.nodeValue = '';
 		this.index = 0;
-		this.attrs = {};
+		this.attributes = {};
 		this.parentIndex = 0;
+		
+		// DOM attributes
+		this.parentNode = null;
+		this.childNodes = null;
+		this.firstChild = null;
+		this.lastChild = null;
+		this.nextSibling = null;
+		this.previousSibling = null;
 		
 		// render temp
 		this.blockX = 0;      // render origin
@@ -24,6 +33,78 @@ Refer to LICENSE file for license.
 		this.renderWidth = 0; // rendered size (propagates backwards)
 		this.renderHeight = 0;
 	}
+
+	function docHTML()
+	{
+		this.nodes = [];
+		this.body = null;
+		this.title = null;
+	}
+	
+	// Iterator for nodes
+	// Returns node in which func returns false, or null
+	docNode.prototype.iterateNodes = function(func) {
+		var nodeList = this.ownerDocument.nodes;
+		var len = nodeList.length;
+		var curStack = this.index;
+		
+		for (var i=this.index+1; i<len; i++) {
+			var node = nodeList[i];
+			
+			if (node.parentIndex < curStack)
+				break;
+			if (!func.call(null, node)) {
+				return node;
+			}
+		}
+		
+		return null;
+	}
+	
+	docNode.prototype.getFirstElementByTagName = function(tag) {
+		var selectAll = tag == '*';
+		
+		return this.iterateNodes(function(node){
+			return !(selectAll || node.tagName == tag);
+		});
+	}
+	
+	// Helpful element functions
+	
+	docNode.prototype.getElementsByTagName = function(tag) {
+		var selectAll = tag == '*';
+		var list = [];
+		this.iterateNodes(function(node){
+			if (selectAll || node.tagName == tag)
+				list.push(node);
+			return true;
+		});
+		return list;
+	}
+
+	docNode.prototype.getElementsByName = function(name) {
+		var list = [];
+		this.iterateNodes(function(node){
+			if (selectAll || node.attr.name == name)
+				list.push(node);
+			return true;
+		});
+		return list;
+	}
+	
+	docNode.prototype.getElementById = function(id) {
+		return this.iterateNodes(function(node){
+			return node.attributes.id != id;
+		});
+	}
+	
+	docNode.prototype.getAttribute = function(name) {
+		return this.attributes(name);
+	}
+
+	docNode.prototype.setAttribute = function(name, value) {
+		this.attributes[name] = value;
+	}
 	
 	// Finds main body tag in document
 	function findBody(nodeList) {
@@ -32,7 +113,7 @@ Refer to LICENSE file for license.
 		for (var i=0; i<len; i++) {
 			var obj = nodeList[i];
 			
-			if (obj.etype == 2)
+			if (obj.nodeType == 9)
 				return obj;
 		}
 		
@@ -92,7 +173,7 @@ Refer to LICENSE file for license.
 		for (var i=body.index+1; i<len; i++) {
 			var obj = nodeList[i];
 			
-			debugLog("[" + i + "]" + obj.tagName + "=" + obj.content + ' @ P[' + obj.parentIndex + '] START=' + (curNode.blockX+curNode.renderWidth));
+			debugLog("[" + i + "]" + obj.tagName + "=" + obj.nodeValue + ' @ P[' + obj.parentIndex + '] START=' + (curNode.blockX+curNode.renderWidth));
 			
 			// End of body?
 			if (obj.parentIndex < body.index) {
@@ -134,13 +215,13 @@ Refer to LICENSE file for license.
 			}
 			
 			// Content node?
-			if (obj.etype == 3) {
+			if (obj.nodeType == 3) {
 				if (curNode.tagName == 'B')
 					ctx.font = "bold 12pt Arial";
 				else
 					ctx.font = "12pt Arial";
 					
-				var renderMetrics = ctx.measureText(obj.content);
+				var renderMetrics = ctx.measureText(obj.nodeValue);
 				
 				//debugLog("ADD ONTO " + curNode.tagName + "," + curNode.index);
 				
@@ -196,7 +277,8 @@ Refer to LICENSE file for license.
 	}
 	
 	// Renders parsed document
-	function render(nodeList) {
+	function render(doc) {
+		var nodeList = doc.nodes;
 		var len = nodeList.length;
 		var curX = 0;
 		var curY = 0;
@@ -210,9 +292,7 @@ Refer to LICENSE file for license.
 		ctx.textBaseline = "top";
 		ctx.fillStyle = "rgb(0, 0, 0, 1.0)";
 		
-		var body = findBody(nodeList);
-		if (!body)
-			return;
+		var body = doc.body;
 		
 		// pre-process layout
 		nodeList = layout(body, nodeList);
@@ -237,7 +317,7 @@ Refer to LICENSE file for license.
 			}
 			
 			// Content node?
-			if (obj.etype == 3) {
+			if (obj.nodeType == 3) {
 				// TODO: style lookup
 				if (curNode.tagName == 'B')
 					ctx.font = "bold 12pt Arial";
@@ -245,8 +325,8 @@ Refer to LICENSE file for license.
 					ctx.font = "12pt Arial";
 				
 				// Render current style
-				ctx.fillText(obj.content, obj.renderX, obj.renderY);
-				debugLog(obj.content + " at " + obj.renderX + "," + obj.renderY);
+				ctx.fillText(obj.nodeValue, obj.renderX, obj.renderY);
+				debugLog(obj.nodeValue + " at " + obj.renderX + "," + obj.renderY);
 			} else {
 				if (obj.parentIndex > curNode.index) // sanity check
 					continue;
@@ -258,57 +338,142 @@ Refer to LICENSE file for license.
 		}
 	}
 	
+	// Populates DOM attributes
+	/*
+	parentNode
+	The parent of this node.
+	childNodes
+	A NodeList that contains all children of this node.
+	firstChild
+	The first child of this node.
+	lastChild
+	The last child of this node.
+	previousSibling
+	The node immediately preceding this node.
+	nextSibling
+	The node immediately following this node.
+	attributes
+	A NamedNodeMap containing the attributes of this node (if it is an Element) or null otherwise.
+	ownerDocument
+	*/
+	function populateDOM(root)
+	{
+		var nodeStack = [];
+		var curNode = root;
+		var lastNode = null;
+		
+		/*
+		BODY[ch=[P,P], fc=P, lc=P]
+		  P [pn=BODY, cn=P, ln=P, ch=[B,TX,B], fc=B, lc=B, ns=P]
+		    B [pn=P, cn=B, ns=TX]
+		    TX [cn=TX, ps=B, pn=P, ns=B]
+		    B [cn=B, ps=TX, pn=P]
+		  P [cn=P, ps=P, pn=BODY]
+		*/
+		root.iterateNodes(function(node){
+			
+			// Reset children
+			node.childNodes = null;
+			node.firstChild = null;
+			node.lastChild = null;
+			node.previousSibling = null;
+			node.nextSibling = null;
+			
+			if (node.parentIndex < curNode.index) {
+				// Closed nodes
+				nodeStack = popToNodeStack(nodeStack, node.parentIndex);
+				curNode = nodeStack[nodeStack.length-1];
+			}
+			
+			// Set children of parents
+			if (curNode.childNodes == null) {
+				curNode.childNodes = [node];
+				curNode.firstChild = node;
+			} else {
+				curNode.childNodes.push(node);
+			}
+			
+			// Set siblings
+			if (curNode.lastChild) {
+				curNode.lastChild.nextSibling = node;
+				node.previousSibling = curNode.lastChild;
+			}
+			curNode.lastChild = node;
+			node.parentNode = curNode;
+			
+			// Update stack
+			if (node.parentIndex >= curNode.index) {
+				// Open nodes
+				nodeStack.push(node);
+				curNode = node;
+			}
+			
+			lastNode = node;
+			return true;
+		});
+	}
+	
 	// Functions to make basic content nodes
 	
-	function addContentNode(list, content, parent)
+	function addContentNode(document, content, parent)
 	{
-		var anon = new docNode(3);
+		var anon = new docNode(3, document);
 		if (parent.tagName == 'SPAN')
-			anon.content = content;
+			anon.nodeValue = content;
 		else
-			anon.content = content.trim();
+			anon.nodeValue = content.trim();
 		
-		anon.index = list.length;
+		anon.index = document.nodes.length;
 		anon.parentIndex = parent.index;
-		list.push(anon);
+		document.nodes.push(anon);
 		return anon;
 	}
 	
 	
-	function addRootNode(list, content, parent)
+	function addRootNode(document, content, parent)
 	{
-		var anon = new docNode(0);
-		anon.content = content;
-		anon.index = list.length;
+		var anon = new docNode(1, document);
+		anon.nodeValue = content;
+		anon.index = document.nodes.length;
 		anon.parentIndex = -1;
-		list.push(anon);
+		document.nodes.push(anon);
 		return anon;
 	}
 
-
-	function addBodyNode(list, content, parent)
+	function addDocAttrNode(document, content, parent)
 	{
-		var anon = new docNode(2);
-		anon.content = content.trim();
-		anon.index = list.length;
+		var anon = new docNode(2, document);
+		anon.nodeValue = content.trim();
+		anon.index = document.nodes.length;
 		anon.parentIndex = parent.index;
-		list.push(anon);
+		document.nodes.push(anon);
+		return anon;
+	}
+
+	function addBodyNode(document, content, parent)
+	{
+		var anon = new docNode(9, document);
+		anon.nodeValue = content.trim();
+		anon.index = document.nodes.length;
+		anon.parentIndex = parent.index;
+		document.nodes.push(anon);
 		return anon;
 	}
 	
-	function addDummyNode(list, content, parent)
+	function addDummyNode(document, content, parent)
 	{
-		var anon = new docNode(1);
-		anon.etype = 1;
-		anon.content = content.trim();
-		anon.index = list.length;
+		var anon = new docNode(1, document);
+		anon.nodeType = 0;
+		anon.nodeValue = content.trim();
+		anon.index = document.nodes.length;
 		anon.parentIndex = parent.index;
-		list.push(anon);
+		document.nodes.push(anon);
 		return anon;
 	}
 	
 	var makeTagFuncs = {
 		'HTML': addRootNode,
+		'TITLE': addDocAttrNode,
 		'BODY': addBodyNode,
 		'P': addDummyNode,
 		'B': addDummyNode,
@@ -337,7 +502,7 @@ Refer to LICENSE file for license.
 		var startIDX = 0;
 		var curStr = doc;
 		var nodeStack = [];
-		var nodeList = [];
+		var genDoc = new docHTML();
 		var len = rawDoc.length;
 		var topNode = null;
 		
@@ -364,7 +529,7 @@ Refer to LICENSE file for license.
 				
 				// Insert content node
 				if (topNode != 0 && content.length > 0) {
-					addContentNode(nodeList, content, topNode);
+					addContentNode(genDoc, content, topNode);
 				}
 				
 				// Open or close nodes
@@ -372,9 +537,9 @@ Refer to LICENSE file for license.
 					// Add node
 					var tagFunc = makeTagFuncs[tagName];
 					if (tagFunc)
-						topNode = tagFunc(nodeList, tagName, topNode);
+						topNode = tagFunc(genDoc, tagName, topNode);
 					else
-						topNode = addDummyNode(nodeList, tagName, topNode)
+						topNode = addDummyNode(genDoc, tagName, topNode)
 					topNode.tagName = tagName;
 					
 					// Parse attributes
@@ -383,7 +548,7 @@ Refer to LICENSE file for license.
 					var attrs = null;
 					
 					while ((attrs = rg.exec(scans)) != null) {
-						topNode.attrs[attrs[1]] = attrs[2].substr(1);
+						topNode.attributes[attrs[1]] = attrs[2].substr(1);
 					}
 					
 					nodeStack.push(topNode);
@@ -406,11 +571,23 @@ Refer to LICENSE file for license.
 			} else // no more tags
 				break;
 		}
+
+		debugLog("Generated Doc:");
+		debugLog(genDoc);
 		
-		debugLog("Generated Nodes:");
-		debugLog(nodeList);
+		// Find useful data
+		genDoc.body = findBody(genDoc.nodes);
+		genDoc.head = genDoc.nodes[0].getFirstElementByTagName('HEAD');
+		if (genDoc.head) {
+			var title = genDoc.nodes[0].getFirstElementByTagName('TITLE');
+			if (title) {
+				title = title.getFirstElementByTagName('*');
+				if (title)
+					genDoc.title = title.nodeValue;
+			}
+		}
 		
-		return nodeList;
+		return genDoc;
 	}
 	
 	// CSS Parser
@@ -426,9 +603,15 @@ Refer to LICENSE file for license.
 		var elements = [];
 		var nextElement;
 		
+		var lastElement = null;
+		var matchParent = false;
+		var matchSibling = false;
+		
 		while ((nextElement = chunker.exec(doc)) != null) {
-			// TODO: ideally add some form of evaluator here
-			elements.push(nextElement[1]);
+			// TODO: hook into an existing CSS selector lib
+			
+			var rule = nextElement[1];
+			elements.push(rule);
 			
 			if (nextElement[2] && nextElement[2].substr(0,1) == ',') {
 				// Selector ended
@@ -468,8 +651,7 @@ Refer to LICENSE file for license.
 		var startIDX = 0;
 		var len = rawDoc.length;
 		
-		// TODO: fix bug with () in @ rules
-		//       also handle blocks better
+		// TODO: handle blocks better
 		while (startIDX != -1 && startIDX < len) {
 			var nextBlock = blockParse.exec(rawDoc);
 			
@@ -500,10 +682,18 @@ Refer to LICENSE file for license.
 	}
 	
 	// Parse and load a sample document
-	var doc = "<html><head><title></title></head><body><!-- Begin test --><p class=\"woo\" id=\"render\" style=\"display:none;\">Rendering <b>HTML</b>...</p><p><span>In <b>Canvas</b></span>!</p><p>0_0</p></body></html>";
+	var doc = "<html><head><title>Test</title></head><body><!-- Begin test --><p class=\"woo\" id=\"render\" style=\"display:none;\">Rendering <b>HTML</b>...</p><p><span>In <b>Canvas</b></span>!</p><p>0_0</p></body></html>";
 	var parsedDoc = parse(doc);
+	populateDOM(parsedDoc.nodes[0]);
 	render(parsedDoc);
 	
+	debugLog("Node function test");
+	debugLog(parsedDoc.nodes[0].getElementsByTagName('BODY'));
+	debugLog(parsedDoc.nodes[0].getElementById('render'));
+	debugLog(parsedDoc.nodes[0].getElementById('render').getElementsByTagName('*'));
+	debugLog(parsedDoc.nodes[0].getElementsByTagName('*'));
+	
 	// Test parse CSS
-	parseCSS("@test testValue; div { foo: 1; woo:\"goo\"; } .wii { text-align: center }");
+	debugLog("Parse css test");
+	parseCSS("@test testValue; div[foo=lol][goo=boo] > p { foo: 1; woo:\"goo\"; } .wii { text-align: center }");
 }());
